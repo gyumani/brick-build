@@ -31,6 +31,29 @@ const Cell = styled.div<{ isFilled: boolean; color?: string }>`
   border: 1px solid #444;
 `;
 
+const PreviewContainer = styled.div`
+  position: absolute;
+  top: 20px;
+  right: -150px;
+  width: 100px;
+  height: 100px;
+  background-color: #333;
+  padding: 10px;
+  border: 2px solid #666;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  gap: 1px;
+  margin-left: 20px;
+`;
+
+const PreviewCell = styled.div<{ isFilled: boolean; color?: string }>`
+  width: 20px;
+  height: 20px;
+  background-color: ${props => props.isFilled ? (props.color || '#00f') : '#222'};
+  border: 1px solid #444;
+`;
+
 const GameOverOverlay = styled.div`
   position: absolute;
   top: 0;
@@ -133,6 +156,7 @@ const GameBoard: React.FC = () => {
     Array(BOARD_HEIGHT).fill(null).map(() => Array(BOARD_WIDTH).fill({ filled: false }))
   );
   const [currentTetromino, setCurrentTetromino] = useState<Tetromino | null>(null);
+  const [nextTetromino, setNextTetromino] = useState<Tetromino | null>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
@@ -148,6 +172,7 @@ const GameBoard: React.FC = () => {
   const resetGame = useCallback(() => {
     setBoard(Array(BOARD_HEIGHT).fill(null).map(() => Array(BOARD_WIDTH).fill({ filled: false })));
     setCurrentTetromino(null);
+    setNextTetromino(null);
     setPosition({ x: 0, y: 0 });
     setScore(0);
     setGameOver(false);
@@ -214,7 +239,7 @@ const GameBoard: React.FC = () => {
   }, [board]);
 
   const lockTetromino = useCallback(() => {
-    if (!currentTetromino) return;
+    if (!currentTetromino || !nextTetromino) return;
     
     const newBoard = [...board];
     currentTetromino.shape.forEach((row, y) => {
@@ -228,27 +253,95 @@ const GameBoard: React.FC = () => {
         }
       });
     });
+    
     setBoard(newBoard);
-    setCurrentTetromino(null);
     clearLines();
-  }, [currentTetromino, position, board, clearLines]);
+    
+    // 새로운 블록 생성
+    const newTetromino = nextTetromino;
+    const nextNewTetromino = getRandomTetromino();
+    
+    const initialPosition = {
+      x: Math.floor(BOARD_WIDTH / 2) - Math.floor(newTetromino.shape[0].length / 2),
+      y: 0
+    };
+    
+    if (checkCollision(newTetromino, initialPosition)) {
+      setGameOver(true);
+      return;
+    }
+    
+    setNextTetromino(nextNewTetromino);
+    setCurrentTetromino(newTetromino);
+    setPosition(initialPosition);
+  }, [currentTetromino, nextTetromino, position, board, clearLines, getRandomTetromino, checkCollision]);
 
   const hardDrop = useCallback(() => {
     if (!currentTetromino) return;
     
     let dropDistance = 0;
-    while (moveTetromino(0, 1)) {
+    let newPosition = { ...position };
+    
+    // 가능한 최대 거리 계산
+    while (true) {
+      const testPosition = { ...newPosition, y: newPosition.y + 1 };
+      if (checkCollision(currentTetromino, testPosition)) {
+        break;
+      }
+      newPosition = testPosition;
       dropDistance++;
     }
+    
     if (dropDistance > 0) {
-      setScore(prevScore => prevScore + dropDistance * 2); // 한 칸당 2점 추가
+      // 블록을 즉시 최종 위치로 이동
+      setPosition(newPosition);
+      setScore(prevScore => prevScore + dropDistance * 2);
+      
+      // 블록 고정
+      const newBoard = [...board];
+      currentTetromino.shape.forEach((row, y) => {
+        row.forEach((cell, x) => {
+          if (cell) {
+            const boardY = newPosition.y + y;
+            const boardX = newPosition.x + x;
+            if (boardY >= 0 && boardY < BOARD_HEIGHT && boardX >= 0 && boardX < BOARD_WIDTH) {
+              newBoard[boardY][boardX] = { filled: true, color: currentTetromino.color };
+            }
+          }
+        });
+      });
+      setBoard(newBoard);
+      
+      // 새로운 블록 생성
+      if (!nextTetromino) return;
+      
+      const newTetromino = nextTetromino;
+      const nextNewTetromino = getRandomTetromino();
+      
+      const initialPosition = {
+        x: Math.floor(BOARD_WIDTH / 2) - Math.floor(newTetromino.shape[0].length / 2),
+        y: 0
+      };
+      
+      if (checkCollision(newTetromino, initialPosition)) {
+        setGameOver(true);
+        return;
+      }
+      
+      setNextTetromino(nextNewTetromino);
+      setCurrentTetromino(newTetromino);
+      setPosition(initialPosition);
+      
+      // 완성된 줄 제거
+      clearLines();
     }
-    lockTetromino();
-  }, [currentTetromino, moveTetromino, lockTetromino]);
+  }, [currentTetromino, nextTetromino, position, board, checkCollision, clearLines, getRandomTetromino]);
 
   useEffect(() => {
-    if (!currentTetromino) {
+    if (!currentTetromino && !nextTetromino) {
       const newTetromino = getRandomTetromino();
+      const nextNewTetromino = getRandomTetromino();
+      setNextTetromino(nextNewTetromino);
       const initialPosition = {
         x: Math.floor(BOARD_WIDTH / 2) - Math.floor(newTetromino.shape[0].length / 2),
         y: 0
@@ -262,7 +355,7 @@ const GameBoard: React.FC = () => {
       setCurrentTetromino(newTetromino);
       setPosition(initialPosition);
     }
-  }, [currentTetromino, getRandomTetromino, checkCollision]);
+  }, [currentTetromino, nextTetromino, getRandomTetromino, checkCollision]);
 
   useEffect(() => {
     if (gameOver || !gameStarted) return;
@@ -272,20 +365,25 @@ const GameBoard: React.FC = () => {
 
       switch (e.key) {
         case 'ArrowLeft':
+          e.preventDefault();
           moveTetromino(-1, 0);
           break;
         case 'ArrowRight':
+          e.preventDefault();
           moveTetromino(1, 0);
           break;
         case 'ArrowDown':
+          e.preventDefault();
           if (!moveTetromino(0, 1)) {
             lockTetromino();
           }
           break;
         case 'ArrowUp':
+          e.preventDefault();
           rotateCurrentTetromino();
           break;
-        case ' ': // 스페이스 바
+        case ' ':
+          e.preventDefault();
           hardDrop();
           break;
       }
@@ -343,6 +441,24 @@ const GameBoard: React.FC = () => {
     return displayBoard;
   };
 
+  const renderPreview = () => {
+    if (!nextTetromino) return null;
+    
+    const previewBoard = Array(4).fill(null).map(() => Array(4).fill({ filled: false }));
+    const offsetX = Math.floor((4 - nextTetromino.shape[0].length) / 2);
+    const offsetY = Math.floor((4 - nextTetromino.shape.length) / 2);
+    
+    nextTetromino.shape.forEach((row, y) => {
+      row.forEach((cell, x) => {
+        if (cell) {
+          previewBoard[offsetY + y][offsetX + x] = { filled: true, color: nextTetromino.color };
+        }
+      });
+    });
+    
+    return previewBoard;
+  };
+
   return (
     <div style={{ position: 'relative' }}>
       {!gameStarted && (
@@ -360,17 +476,32 @@ const GameBoard: React.FC = () => {
         </IntroOverlay>
       )}
       <div style={{ color: 'white', marginBottom: '10px' }}>Score: {score}</div>
-      <BoardContainer>
-        {renderBoard().map((row, y) => 
-          row.map((cell, x) => (
-            <Cell 
-              key={`${y}-${x}`} 
-              isFilled={cell.filled}
-              color={cell.color}
-            />
-          ))
+      <div style={{ position: 'relative' }}>
+        <BoardContainer>
+          {renderBoard().map((row, y) => 
+            row.map((cell, x) => (
+              <Cell 
+                key={`${y}-${x}`} 
+                isFilled={cell.filled}
+                color={cell.color}
+              />
+            ))
+          )}
+        </BoardContainer>
+        {gameStarted && (
+          <PreviewContainer>
+            {renderPreview()?.map((row, y) => 
+              row.map((cell, x) => (
+                <PreviewCell 
+                  key={`preview-${y}-${x}`} 
+                  isFilled={cell.filled}
+                  color={cell.color}
+                />
+              ))
+            )}
+          </PreviewContainer>
         )}
-      </BoardContainer>
+      </div>
       {gameOver && (
         <GameOverOverlay>
           <GameOverTitle>Game Over!</GameOverTitle>
