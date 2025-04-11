@@ -5,7 +5,7 @@ import { TETROMINOES, TetrominoType, Tetromino, rotateTetromino } from '../utils
 const BOARD_WIDTH = 16;
 const BOARD_HEIGHT = 24;
 const INITIAL_DROP_INTERVAL = 1000; // 초기 속도 1초
-const SPEED_INCREASE_INTERVAL = 10000; // 10초마다
+const SPEED_INCREASE_SCORE = 1000; // 1000점마다
 const SPEED_INCREASE_AMOUNT = 100; // 0.1초씩 빨라짐
 const MIN_DROP_INTERVAL = 100; // 최소 속도 0.1초
 
@@ -162,11 +162,11 @@ const GameBoard: React.FC = () => {
   const [gameOver, setGameOver] = useState(false);
   const [dropInterval, setDropInterval] = useState(INITIAL_DROP_INTERVAL);
   const [gameStarted, setGameStarted] = useState(false);
-  const gameStartTime = useRef<number>(Date.now());
+  const lastSpeedIncreaseScore = useRef<number>(0);
 
   const startGame = useCallback(() => {
     setGameStarted(true);
-    gameStartTime.current = Date.now();
+    lastSpeedIncreaseScore.current = 0;
   }, []);
 
   const resetGame = useCallback(() => {
@@ -177,7 +177,7 @@ const GameBoard: React.FC = () => {
     setScore(0);
     setGameOver(false);
     setDropInterval(INITIAL_DROP_INTERVAL);
-    gameStartTime.current = Date.now();
+    lastSpeedIncreaseScore.current = 0;
   }, []);
 
   const getRandomTetromino = useCallback((): Tetromino => {
@@ -396,16 +396,17 @@ const GameBoard: React.FC = () => {
   useEffect(() => {
     if (gameOver) return;
 
-    const speedInterval = setInterval(() => {
+    // 스코어에 따른 속도 증가
+    const speedIncreaseCount = Math.floor(score / SPEED_INCREASE_SCORE);
+    if (speedIncreaseCount > Math.floor(lastSpeedIncreaseScore.current / SPEED_INCREASE_SCORE)) {
       const newInterval = Math.max(
-        INITIAL_DROP_INTERVAL - Math.floor((Date.now() - gameStartTime.current) / SPEED_INCREASE_INTERVAL) * SPEED_INCREASE_AMOUNT,
+        INITIAL_DROP_INTERVAL - speedIncreaseCount * SPEED_INCREASE_AMOUNT,
         MIN_DROP_INTERVAL
       );
       setDropInterval(newInterval);
-    }, SPEED_INCREASE_INTERVAL);
-
-    return () => clearInterval(speedInterval);
-  }, [gameOver]);
+      lastSpeedIncreaseScore.current = score;
+    }
+  }, [score, gameOver]);
 
   useEffect(() => {
     if (gameOver) return;
