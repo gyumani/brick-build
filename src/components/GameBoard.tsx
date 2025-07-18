@@ -626,8 +626,8 @@ const GameBoard: React.FC = () => {
       )}
       {gameStarted && (
         <>
-          <div style={{ color: 'white', marginBottom: '10px' }}>Score: {score}</div>
-          <div style={{ position: 'relative', width: 'fit-content'}}>
+          <div style={{ color: 'white', marginBottom: '10px', textAlign: 'center' }}>Score: {score}</div>
+          <div style={{ position: 'relative', width: 'fit-content', margin: '0 auto' }}>
             <BoardContainer>
               {renderBoard().map((row, y) => 
                 row.map((cell, x) => (
