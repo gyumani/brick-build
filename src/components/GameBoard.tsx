@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import styled from 'styled-components';
 import { TETROMINOES, TetrominoType, Tetromino, rotateTetromino } from '../utils/tetrominoes';
+import { getCookie, setCookie } from '../utils/cookies';
 
 const BOARD_WIDTH = 16;
 const BOARD_HEIGHT = 24;
@@ -12,6 +13,12 @@ const MIN_DROP_INTERVAL = 100; // 최소 속도 0.1초
 interface BoardCell {
   filled: boolean;
   color?: string;
+}
+
+interface ScoreRecord {
+  name: string;
+  score: number;
+  date: string;
 }
 
 const BoardContainer = styled.div`
@@ -85,8 +92,16 @@ const GameOverTitle = styled.h2`
 
 const FinalScore = styled.div`
   font-size: 32px;
-  margin-bottom: 30px;
+  margin-bottom: 20px;
   color: #4CAF50;
+`;
+
+const NameInput = styled.input`
+  padding: 10px;
+  font-size: 18px;
+  margin-bottom: 20px;
+  width: 200px;
+  text-align: center;
 `;
 
 const RestartButton = styled.button`
@@ -98,6 +113,8 @@ const RestartButton = styled.button`
   border-radius: 5px;
   cursor: pointer;
   transition: all 0.3s ease;
+
+  margin-right: 15px;
   
   &:hover {
     background-color: #45a049;
@@ -144,10 +161,71 @@ const StartButton = styled.button`
   border-radius: 5px;
   cursor: pointer;
   transition: all 0.3s ease;
+  margin-right: 10px;
   
   &:hover {
     background-color: #45a049;
     transform: scale(1.05);
+  }
+`;
+
+const RankingButton = styled(StartButton)`
+  background-color: #f44336;
+  
+  &:hover {
+    background-color: #d32f2f;
+  }
+`;
+
+const RankingOverlay = styled(GameOverOverlay)`
+  background-color: rgba(0, 0, 0, 0.95);
+`;
+
+const RankingTitle = styled.h2`
+  font-size: 48px;
+  color: #4CAF50;
+  margin-bottom: 20px;
+`;
+
+const RankingList = styled.ol`
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+  width: 80%;
+  max-width: 400px;
+`;
+
+const RankingItem = styled.li`
+  display: grid;
+  grid-template-columns: 1fr 2fr 2fr;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid #555;
+  font-size: 20px;
+  
+  &:nth-child(odd) {
+    background-color: #2a2a2a;
+  }
+`;
+
+const BackButton = styled(RestartButton)`
+  margin-top: 30px;
+`;
+
+const SubmitButton = styled(RestartButton)`
+  background-color: #4CAF50;
+  
+  &:hover {
+    background-color: #45a049;
+  }
+`;
+
+const MainMenuButton = styled(RestartButton)`
+  background-color: #2196F3;
+  margin-top: 20px;
+  
+  &:hover {
+    background-color: #1976D2;
   }
 `;
 
@@ -162,23 +240,68 @@ const GameBoard: React.FC = () => {
   const [gameOver, setGameOver] = useState(false);
   const [dropInterval, setDropInterval] = useState(INITIAL_DROP_INTERVAL);
   const [gameStarted, setGameStarted] = useState(false);
+  const [showRanking, setShowRanking] = useState(false);
+  const [rankings, setRankings] = useState<ScoreRecord[]>([]);
+  const [playerName, setPlayerName] = useState('');
+  const [showGameOverRanking, setShowGameOverRanking] = useState(false);
   const lastSpeedIncreaseScore = useRef<number>(0);
+
+  const saveScore = useCallback((name: string) => {
+    const scoresCookie = getCookie('tetrisScores');
+    const scores: ScoreRecord[] = scoresCookie ? JSON.parse(scoresCookie) : [];
+    const newScore: ScoreRecord = { name, score, date: new Date().toISOString() };
+    const newScores = [...scores, newScore]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10);
+    setCookie('tetrisScores', JSON.stringify(newScores), 365);
+    setRankings(newScores);
+    setShowGameOverRanking(true);
+  }, [score]);
+
+  const loadRanking = useCallback(() => {
+    const scoresCookie = getCookie('tetrisScores');
+    const scores: ScoreRecord[] = scoresCookie ? JSON.parse(scoresCookie) : [];
+    setRankings(scores);
+  }, []);
 
   const startGame = useCallback(() => {
     setGameStarted(true);
+    setShowRanking(false);
+    setShowGameOverRanking(false);
+    setPlayerName('');
     lastSpeedIncreaseScore.current = 0;
   }, []);
 
-  const resetGame = useCallback(() => {
+  const submitScore = useCallback(() => {
+    if (playerName.trim() === '') {
+      alert('Please enter your name.');
+      return;
+    }
+    saveScore(playerName);
+  }, [saveScore, playerName]);
+
+  const goToMainMenu = useCallback(() => {
     setBoard(Array(BOARD_HEIGHT).fill(null).map(() => Array(BOARD_WIDTH).fill({ filled: false })));
     setCurrentTetromino(null);
     setNextTetromino(null);
     setPosition({ x: 0, y: 0 });
     setScore(0);
     setGameOver(false);
+    setGameStarted(false);
+    setShowGameOverRanking(false);
     setDropInterval(INITIAL_DROP_INTERVAL);
+    setPlayerName('');
     lastSpeedIncreaseScore.current = 0;
   }, []);
+
+  const handleShowRanking = () => {
+    loadRanking();
+    setShowRanking(true);
+  };
+
+  const handleHideRanking = () => {
+    setShowRanking(false);
+  };
 
   const getRandomTetromino = useCallback((): Tetromino => {
     const types: TetrominoType[] = ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
@@ -223,20 +346,22 @@ const GameBoard: React.FC = () => {
   }, [currentTetromino, position, checkCollision]);
 
   const clearLines = useCallback(() => {
-    let linesCleared = 0;
-    const newBoard = board.filter(row => {
-      const isFull = row.every(cell => cell.filled);
-      if (isFull) linesCleared++;
-      return !isFull;
+    setBoard(prevBoard => {
+      let linesCleared = 0;
+      const newBoard = prevBoard.filter(row => {
+        const isFull = row.every(cell => cell.filled);
+        if (isFull) linesCleared++;
+        return !isFull;
+      });
+
+      while (newBoard.length < BOARD_HEIGHT) {
+        newBoard.unshift(Array(BOARD_WIDTH).fill({ filled: false }));
+      }
+
+      setScore(prevScore => prevScore + linesCleared * 100);
+      return newBoard;
     });
-
-    while (newBoard.length < BOARD_HEIGHT) {
-      newBoard.unshift(Array(BOARD_WIDTH).fill({ filled: false }));
-    }
-
-    setBoard(newBoard);
-    setScore(prevScore => prevScore + linesCleared * 100);
-  }, [board]);
+  }, []);
 
   const lockTetromino = useCallback(() => {
     if (!currentTetromino || !nextTetromino) return;
@@ -255,9 +380,7 @@ const GameBoard: React.FC = () => {
     });
     
     setBoard(newBoard);
-    clearLines();
     
-    // 새로운 블록 생성
     const newTetromino = nextTetromino;
     const nextNewTetromino = getRandomTetromino();
     
@@ -274,7 +397,12 @@ const GameBoard: React.FC = () => {
     setNextTetromino(nextNewTetromino);
     setCurrentTetromino(newTetromino);
     setPosition(initialPosition);
-  }, [currentTetromino, nextTetromino, position, board, clearLines, getRandomTetromino, checkCollision]);
+    
+    // Clear lines after new tetromino is set to avoid state race condition
+    setTimeout(() => {
+      clearLines();
+    }, 0);
+  }, [currentTetromino, nextTetromino, position, board, getRandomTetromino, checkCollision, clearLines]);
 
   const hardDrop = useCallback(() => {
     if (!currentTetromino) return;
@@ -282,7 +410,6 @@ const GameBoard: React.FC = () => {
     let dropDistance = 0;
     let newPosition = { ...position };
     
-    // 가능한 최대 거리 계산
     while (true) {
       const testPosition = { ...newPosition, y: newPosition.y + 1 };
       if (checkCollision(currentTetromino, testPosition)) {
@@ -293,11 +420,9 @@ const GameBoard: React.FC = () => {
     }
     
     if (dropDistance > 0) {
-      // 블록을 즉시 최종 위치로 이동
       setPosition(newPosition);
       setScore(prevScore => prevScore + dropDistance * 2);
       
-      // 블록 고정
       const newBoard = [...board];
       currentTetromino.shape.forEach((row, y) => {
         row.forEach((cell, x) => {
@@ -312,7 +437,6 @@ const GameBoard: React.FC = () => {
       });
       setBoard(newBoard);
       
-      // 새로운 블록 생성
       if (!nextTetromino) return;
       
       const newTetromino = nextTetromino;
@@ -332,10 +456,12 @@ const GameBoard: React.FC = () => {
       setCurrentTetromino(newTetromino);
       setPosition(initialPosition);
       
-      // 완성된 줄 제거
-      clearLines();
+      // Clear lines after new tetromino is set to avoid state race condition
+      setTimeout(() => {
+        clearLines();
+      }, 0);
     }
-  }, [currentTetromino, nextTetromino, position, board, checkCollision, clearLines, getRandomTetromino]);
+  }, [currentTetromino, nextTetromino, position, board, checkCollision, getRandomTetromino, clearLines]);
 
   useEffect(() => {
     if (!currentTetromino && !nextTetromino) {
@@ -396,7 +522,6 @@ const GameBoard: React.FC = () => {
   useEffect(() => {
     if (gameOver) return;
 
-    // 스코어에 따른 속도 증가
     const speedIncreaseCount = Math.floor(score / SPEED_INCREASE_SCORE);
     if (speedIncreaseCount > Math.floor(lastSpeedIncreaseScore.current / SPEED_INCREASE_SCORE)) {
       const newInterval = Math.max(
@@ -409,7 +534,7 @@ const GameBoard: React.FC = () => {
   }, [score, gameOver]);
 
   useEffect(() => {
-    if (gameOver) return;
+    if (gameOver || !gameStarted) return;
 
     const dropIntervalId = setInterval(() => {
       if (!currentTetromino) return;
@@ -420,7 +545,7 @@ const GameBoard: React.FC = () => {
     }, dropInterval);
 
     return () => clearInterval(dropIntervalId);
-  }, [currentTetromino, moveTetromino, lockTetromino, gameOver, dropInterval]);
+  }, [currentTetromino, moveTetromino, lockTetromino, gameOver, dropInterval, gameStarted]);
 
   const renderBoard = () => {
     const displayBoard = board.map(row => [...row]);
@@ -461,8 +586,8 @@ const GameBoard: React.FC = () => {
   };
 
   return (
-    <div style={{ position: 'relative' }}>
-      {!gameStarted && (
+    <div style={{ position: 'relative', width : '100%' }}>
+      {!gameStarted && !showRanking && (
         <IntroOverlay>
           <Title>TETRIS</Title>
           <Instructions>
@@ -473,42 +598,94 @@ const GameBoard: React.FC = () => {
             <p>Space : Hard drop (2 points per cell)</p>
             <p>Speed increases over time!</p>
           </Instructions>
-          <StartButton onClick={startGame}>Start Game</StartButton>
+          <div>
+            <StartButton onClick={startGame}>Start Game</StartButton>
+            <RankingButton onClick={handleShowRanking}>Ranking</RankingButton>
+          </div>
         </IntroOverlay>
       )}
-      <div style={{ color: 'white', marginBottom: '10px' }}>Score: {score}</div>
-      <div style={{ position: 'relative' }}>
-        <BoardContainer>
-          {renderBoard().map((row, y) => 
-            row.map((cell, x) => (
-              <Cell 
-                key={`${y}-${x}`} 
-                isFilled={cell.filled}
-                color={cell.color}
-              />
-            ))
-          )}
-        </BoardContainer>
-        {gameStarted && (
-          <PreviewContainer>
-            {renderPreview()?.map((row, y) => 
-              row.map((cell, x) => (
-                <PreviewCell 
-                  key={`preview-${y}-${x}`} 
-                  isFilled={cell.filled}
-                  color={cell.color}
-                />
-              ))
-            )}
-          </PreviewContainer>
-        )}
-      </div>
-      {gameOver && (
+      {showRanking && (
+        <RankingOverlay>
+          <RankingTitle>Ranking</RankingTitle>
+          <RankingList>
+            <RankingItem>
+              <strong>Rank</strong>
+              <strong>Score</strong>
+              <strong>Name</strong>
+            </RankingItem>
+            {rankings.map((r, i) => (
+              <RankingItem key={i}>
+                <span>{i + 1}</span>
+                <span>{r.score}</span>
+                <span>{r.name}</span>
+              </RankingItem>
+            ))}
+          </RankingList>
+          <BackButton onClick={handleHideRanking}>Back</BackButton>
+        </RankingOverlay>
+      )}
+      {gameStarted && (
+        <>
+          <div style={{ color: 'white', marginBottom: '10px' }}>Score: {score}</div>
+          <div style={{ position: 'relative', width: 'fit-content'}}>
+            <BoardContainer>
+              {renderBoard().map((row, y) => 
+                row.map((cell, x) => (
+                  <Cell 
+                    key={`${y}-${x}`} 
+                    isFilled={cell.filled}
+                    color={cell.color}
+                  />
+                ))
+              )}
+            </BoardContainer>
+            <PreviewContainer>
+              {renderPreview()?.map((row, y) => 
+                row.map((cell, x) => (
+                  <PreviewCell 
+                    key={`preview-${y}-${x}`} 
+                    isFilled={cell.filled}
+                    color={cell.color}
+                  />
+                ))
+              )}
+            </PreviewContainer>
+          </div>
+        </>
+      )}
+      {gameOver && !showGameOverRanking && (
         <GameOverOverlay>
           <GameOverTitle>Game Over!</GameOverTitle>
           <FinalScore>Final Score: {score}</FinalScore>
-          <RestartButton onClick={resetGame}>Restart</RestartButton>
+          <NameInput 
+            type="text"
+            placeholder="Enter your name"
+            value={playerName}
+            onChange={(e) => setPlayerName(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && submitScore()}
+          />
+          <SubmitButton onClick={submitScore}>Submit Score</SubmitButton>
         </GameOverOverlay>
+      )}
+      {showGameOverRanking && (
+        <RankingOverlay>
+          <RankingTitle>Ranking</RankingTitle>
+          <RankingList>
+            <RankingItem>
+              <strong>Rank</strong>
+              <strong>Score</strong>
+              <strong>Name</strong>
+            </RankingItem>
+            {rankings.map((r, i) => (
+              <RankingItem key={i}>
+                <span>{i + 1}</span>
+                <span>{r.score}</span>
+                <span>{r.name}</span>
+              </RankingItem>
+            ))}
+          </RankingList>
+          <MainMenuButton onClick={goToMainMenu}>Main Menu</MainMenuButton>
+        </RankingOverlay>
       )}
     </div>
   );
